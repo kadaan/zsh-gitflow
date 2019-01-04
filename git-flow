@@ -99,23 +99,26 @@ function run() {
       git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
     fi
     local git_commit_details
-    git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/    /')" || die "failed to get commit details"
-    local git_merge_base
-    git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-    git reset --soft \$git_merge_base || die "failed to reset back to merge base"
-    local git_commit_message_file
-    git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
-    cat <<EOM > \$git_commit_message_file
+    git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
+    local git_commit_count
+    git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
+    if [[ "\$git_commit_count" -gt "1" ]]; then
+      local git_merge_base
+      git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
+      git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+      local git_commit_message_file
+      git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
+      cat <<EOM > \$git_commit_message_file
 Finish \$branch
 
-Squashed commits:
 \${git_commit_details}
 EOM
-    trap "rm -rf \$git_commit_message_file" EXIT
-    git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
-    if [[ "\$?" != "0" ]]; then
-      git reset 'HEAD@{1}' || die "failed to undo reset"
-      die "failed to squash commits"
+      trap "rm -rf \$git_commit_message_file" EXIT
+      git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+      if [[ "\$?" != "0" ]]; then
+        git reset 'HEAD@{1}' || die "failed to undo reset"
+        die "failed to squash commits"
+      fi
     fi
     git rebase \$base_branch || die "failed to rebase onto base branch"
   fi
@@ -160,6 +163,9 @@ EOF
       git config gitflow.hotfix.finish.message "Tagged"
       git config gitflow.hotfix.finish.push true
       git config gitflow.hotfix.finish.squash false
+      git config gitflow.release.finish.message "Tagged"
+      git config gitflow.release.finish.push true
+      git config gitflow.release.finish.squash false
       git config gitflow.path.hooks "$HOME/.git-hooks"
     else
       $gitflow_path "$@"
