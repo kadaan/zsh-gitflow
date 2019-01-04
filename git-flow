@@ -156,14 +156,17 @@ EOF
       git config gitflow.prefix.hotfix "hotfix/"
       git config gitflow.prefix.support "support/"
       git config gitflow.prefix.versiontag ""
+      git config gitflow.feature.finish.fetch true
       git config gitflow.feature.finish.no-ff true
       git config gitflow.feature.finish.rebase false
       git config gitflow.feature.finish.push true
       git config gitflow.feature.finish.squash false
       git config gitflow.hotfix.finish.message "Tagged"
+      git config gitflow.hotfix.finish.ff true
       git config gitflow.hotfix.finish.push true
       git config gitflow.hotfix.finish.squash false
       git config gitflow.release.finish.message "Tagged"
+      git config gitflow.release.finish.fetch true
       git config gitflow.release.finish.push true
       git config gitflow.release.finish.squash false
       git config gitflow.path.hooks "$HOME/.git-hooks"
