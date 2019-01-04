@@ -49,10 +49,10 @@ function run() {
   local origin="\$2"
   local branch="\$3"
 
-  $HOME/.git-hooks/pre-flow-finish
+  $HOME/.git-hooks/pre-flow-finish "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
 }
 
-run "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
+run "\$@"
 
 EOF
       chmod +x $HOME/.git-hooks/pre-flow-hotfix-finish
@@ -64,10 +64,10 @@ function run() {
   local origin="\$2"
   local branch="\$3"
 
-  $HOME/.git-hooks/pre-flow-finish
+  $HOME/.git-hooks/pre-flow-finish "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
 }
 
-run "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
+run "\$@"
 
 EOF
       chmod +x $HOME/.git-hooks/pre-flow-feature-finish
