@@ -87,36 +87,38 @@ function run() {
   base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
   base_branch=\${base_branch:-\$default_base_branch}
 
-  local git_commit_author_name
-  git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
-  local git_commit_author_email
-  git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
-  local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
-  local git_squash_commit_format
-  git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
-  if [[ "\$?" != "0" ]]; then
-    git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
-  fi
-  local git_commit_details
-  git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/    /')" || die "failed to get commit details"
-  local git_merge_base
-  git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-  git reset --soft \$git_merge_base || die "failed to reset back to merge base"
-  local git_commit_message_file
-  git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
-  cat <<EOM > \$git_commit_message_file
+  if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
+    local git_commit_author_name
+    git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
+    local git_commit_author_email
+    git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
+    local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
+    local git_squash_commit_format
+    git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
+    if [[ "\$?" != "0" ]]; then
+      git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
+    fi
+    local git_commit_details
+    git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/    /')" || die "failed to get commit details"
+    local git_merge_base
+    git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
+    git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+    local git_commit_message_file
+    git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
+    cat <<EOM > \$git_commit_message_file
 Finish \$branch
 
 Squashed commits:
 \${git_commit_details}
 EOM
-  trap "rm -rf \$git_commit_message_file" EXIT
-  git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
-  if [[ "\$?" != "0" ]]; then
-    git reset 'HEAD@{1}' || die "failed to undo reset"
-    die "failed to squash commits"
+    trap "rm -rf \$git_commit_message_file" EXIT
+    git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+    if [[ "\$?" != "0" ]]; then
+      git reset 'HEAD@{1}' || die "failed to undo reset"
+      die "failed to squash commits"
+    fi
+    git rebase \$base_branch || die "failed to rebase onto base branch"
   fi
-  git rebase \$base_branch || die "failed to rebase onto base branch"
   git push --force || die "failed to push squashed branch"
   exit 0
 }
