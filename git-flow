@@ -85,6 +85,7 @@ EOM
     die "failed to squash commits"
   fi
   git rebase \$base_branch || die "failed to rebase onto base branch"
+  git push --force || die "failed to push squashed branch"
   exit 0
 }
 
