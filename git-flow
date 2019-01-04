@@ -63,7 +63,7 @@ function run() {
   local git_squash_commit_format
   git_squash_commit_format="\$(git config --get gitflow.feature.finish.squash.format)"
   if [[ "\$?" != "0" ]]; then
-    git_squash_commit_format="%h%x09%s%x09%aN <%aE>%x09%ad"
+    git_squash_commit_format="%h%x09%s%x09%aE%x09%ad"
   fi
   local git_commit_details
   git_commit_details="\$(git log "\$base_branch..\$branch" --pretty="format:\$git_squash_commit_format" | sed 's/^/    /')" || die "failed to get commit details"
@@ -78,8 +78,11 @@ Squashed commit of the following:
 \${git_commit_details}
 EOM
   trap "rm -rf \$git_commit_message_file" EXIT
-  git_do commit --author="\$git_commit_author" --edit --file - || die "failed to squash commits"
-  git_do rebase \$base_branch || die "failed to rebase onto base branch"
+  git_do commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+  if [[ "\$?" != "0" ]]; then
+    git_do reset 'HEAD@{1}' || die "failed to undo reset"
+    die "failed to squash commits"
+  fi  git_do rebase \$base_branch || die "failed to rebase onto base branch"
   exit 0
 }
 
