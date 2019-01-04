@@ -52,7 +52,7 @@ function run() {
   $HOME/.git-hooks/pre-flow-finish
 }
 
-run "hotfix" "\$name" "\$origin" "\$branch"
+run "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
 
 EOF
       chmod +x $HOME/.git-hooks/pre-flow-hotfix-finish
@@ -67,7 +67,7 @@ function run() {
   $HOME/.git-hooks/pre-flow-finish
 }
 
-run "feature" "\$name" "\$origin" "\$branch"
+run "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
 
 EOF
       chmod +x $HOME/.git-hooks/pre-flow-feature-finish
@@ -76,15 +76,16 @@ EOF
 
 function run() {
   local type="\$1"
-  local name="\$2"
-  local origin="\$3"
-  local branch="\$4"
+  local default_base_branch="\$2"
+  local name="\$3"
+  local origin="\$4"
+  local branch="\$5"
 
   . "$gitflow_dir/gitflow-common"
 
   local base_branch
   base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
-  base_branch=\${base_branch:-\$DEVELOP_BRANCH}
+  base_branch=\${base_branch:-\$default_base_branch}
 
   local git_commit_author_name
   git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
