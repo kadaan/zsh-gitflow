@@ -82,7 +82,8 @@ EOM
   if [[ "\$?" != "0" ]]; then
     git_do reset 'HEAD@{1}' || die "failed to undo reset"
     die "failed to squash commits"
-  fi  git_do rebase \$base_branch || die "failed to rebase onto base branch"
+  fi
+  git_do rebase \$base_branch || die "failed to rebase onto base branch"
   exit 0
 }
 
