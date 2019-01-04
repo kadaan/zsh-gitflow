@@ -69,23 +69,22 @@ function run() {
   git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/    /')" || die "failed to get commit details"
   local git_merge_base
   git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-  git_do reset --soft \$git_merge_base || die "failed to reset back to merge base"
+  git reset --soft \$git_merge_base || die "failed to reset back to merge base"
   local git_commit_message_file
   git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
   cat <<EOM > \$git_commit_message_file
 Finish \$branch
 
-Squashed commit of the following:
-
+Squashed commits:
 \${git_commit_details}
 EOM
   trap "rm -rf \$git_commit_message_file" EXIT
-  git_do commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+  git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
   if [[ "\$?" != "0" ]]; then
-    git_do reset 'HEAD@{1}' || die "failed to undo reset"
+    git reset 'HEAD@{1}' || die "failed to undo reset"
     die "failed to squash commits"
   fi
-  git_do rebase \$base_branch || die "failed to rebase onto base branch"
+  git rebase \$base_branch || die "failed to rebase onto base branch"
   exit 0
 }
 
@@ -118,6 +117,7 @@ EOF
       git config gitflow.prefix.versiontag ""
       git config gitflow.feature.finish.no-ff true
       git config gitflow.feature.finish.rebase false
+      git config gitflow.feature.finish.push true
       git config gitflow.feature.finish.squash false
       git config gitflow.path.hooks "$HOME/.git-hooks"
     else
