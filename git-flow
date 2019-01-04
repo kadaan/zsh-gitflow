@@ -119,7 +119,9 @@ EOM
     fi
     git rebase \$base_branch || die "failed to rebase onto base branch"
   fi
-  git push --force || die "failed to push squashed branch"
+  if git_remote_branch_exists "\$origin/\$branch"; then
+    git push --force || die "failed to push squashed branch"
+  fi
   exit 0
 }
 
@@ -155,7 +157,7 @@ EOF
       git config gitflow.feature.finish.rebase false
       git config gitflow.feature.finish.push true
       git config gitflow.feature.finish.squash false
-      git config gitflow.hotfix.finish.message ""
+      git config gitflow.hotfix.finish.message "Tagged"
       git config gitflow.hotfix.finish.push true
       git config gitflow.hotfix.finish.squash false
       git config gitflow.path.hooks "$HOME/.git-hooks"
