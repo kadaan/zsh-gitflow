@@ -153,6 +153,9 @@ EOF
       git config gitflow.feature.finish.rebase false
       git config gitflow.feature.finish.push true
       git config gitflow.feature.finish.squash false
+      git config gitflow.hotfix.finish.message ""
+      git config gitflow.hotfix.finish.push true
+      git config gitflow.hotfix.finish.squash false
       git config gitflow.path.hooks "$HOME/.git-hooks"
     else
       $gitflow_path "$@"
