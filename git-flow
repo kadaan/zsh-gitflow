@@ -27,17 +27,17 @@ function get_gitflow_extension_current_version() {
 function is_gitflow_extension_initialized() {
   local gitflow_extension_version
   gitflow_extension_version=$(get_gitflow_extension_current_version)
-  if [[ "$?" -eq "0" ]]; then
-    return 0
-  else
+  if [[ "$gitflow_extension_version" -eq "0" ]]; then
     return 1
+  else
+    return 0
   fi
 }
 
 function is_gitflow_extension_current() {
   local gitflow_extension_version
   gitflow_extension_version=$(get_gitflow_extension_current_version)
-  if [[ "$?" -eq "0" && "$gitflow_extension_version" -eq "$VERSION" ]]; then
+  if [[ "$gitflow_extension_version" -eq "$VERSION" ]]; then
     return 0
   else
     return 1
