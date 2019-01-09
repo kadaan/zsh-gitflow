@@ -211,10 +211,10 @@ function run() {
       local gitflow_init_message="Initialized: "
       if ! is_gitflow_extension_initialized; then
         gitflow_init_message="${gitflow_init_message}No"
-      elif ! is_gitflow_extension_current; then
-        gitflow_init_message="${gitflow_init_message}Outdated"
-      else
+      elif is_gitflow_extension_current; then
         gitflow_init_message="${gitflow_init_message}Yes"
+      else
+        gitflow_init_message="${gitflow_init_message}Outdated"
       fi
       echo "$gitflow_init_message"
     elif [[ "$subcommand" == "init" ]]; then
