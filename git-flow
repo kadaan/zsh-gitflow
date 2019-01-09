@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 BUILD_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+VERSION=1
 
-function run() {
-  local gitflow_path
+function load_common() {
   gitflow_path="$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
   while [ -h "$gitflow_path" ]; do
+    # shellcheck disable=SC2155
     local link=$(readlink "$gitflow_path")
     if expr "$link" : '/.*' > /dev/null; then
       gitflow_path="$link"
@@ -13,9 +14,165 @@ function run() {
       gitflow_path="$(dirname "$gitflow_path")/$link"
     fi
   done
-  local gitflow_dir=$(dirname "$gitflow_path")/../libexec/bin
+  # shellcheck disable=SC2155
+  gitflow_dir=$(dirname "$gitflow_path")/../libexec/bin
+  # shellcheck disable=SC1090
   . "$gitflow_dir/gitflow-common"
+}
 
+function write_pre_flow_hotfix_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/pre-flow-hotfix-finish
+#!/usr/bin/env bash
+
+function run() {
+local name="\$1"
+local origin="\$2"
+local branch="\$3"
+
+$HOME/.git-hooks/pre-flow-finish "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
+}
+
+run "\$@"
+
+EOF
+  chmod +x $HOME/.git-hooks/pre-flow-hotfix-finish
+}
+
+function write_pre_flow_feature_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/pre-flow-feature-finish
+#!/usr/bin/env bash
+
+function run() {
+local name="\$1"
+local origin="\$2"
+local branch="\$3"
+
+$HOME/.git-hooks/pre-flow-finish "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
+}
+
+run "\$@"
+
+EOF
+  chmod +x $HOME/.git-hooks/pre-flow-feature-finish
+}
+
+function write_pre_flow_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/pre-flow-finish
+#!/usr/bin/env bash
+
+function run() {
+local type="\$1"
+local default_base_branch="\$2"
+local name="\$3"
+local origin="\$4"
+local branch="\$5"
+
+. "$gitflow_dir/gitflow-common"
+
+local base_branch
+base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
+base_branch=\${base_branch:-\$default_base_branch}
+
+if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
+local git_commit_author_name
+git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
+local git_commit_author_email
+git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
+local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
+local git_squash_commit_format
+git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
+if [[ "\$?" != "0" ]]; then
+  git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
+fi
+local git_commit_details
+git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
+local git_commit_count
+git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
+if [[ "\$git_commit_count" -gt "1" ]]; then
+  local git_merge_base
+  git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
+  git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+  local git_commit_message_file
+  git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
+  cat <<EOM > \$git_commit_message_file
+Finish \$branch
+
+\${git_commit_details}
+EOM
+  trap "rm -rf \$git_commit_message_file" EXIT
+  git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+  if [[ "\$?" != "0" ]]; then
+    git reset 'HEAD@{1}' || die "failed to undo reset"
+    die "failed to squash commits"
+  fi
+fi
+git rebase \$base_branch || die "failed to rebase onto base branch"
+fi
+if git_remote_branch_exists "\$origin/\$branch"; then
+git push --force || die "failed to push squashed branch"
+fi
+exit 0
+}
+
+run "\$@"
+EOF
+  chmod +x $HOME/.git-hooks/pre-flow-finish
+}
+
+function write_hooks() {
+  mkdir -p $HOME/.git-hooks
+  write_pre_flow_finish_hook
+  write_pre_flow_hotfix_finish_hook
+  write_pre_flow_feature_finish_hook
+}
+
+function initialize() {
+  write_hooks
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    git init >/dev/null 2>&1
+  fi
+  if ! git_local_branch_exists "master" >/dev/null 2>&1; then
+    if ! git rev-parse --quiet --verify HEAD >/dev/null 2>&1; then
+      git symbolic-ref HEAD "refs/heads/master" >/dev/null 2>&1
+      git commit --allow-empty --quiet -m "Initial commit" >/dev/null 2>&1
+    elif git_remote_branch_exists "master" >/dev/null 2>&1; then
+      git branch "master" "origin/master" >/dev/null 2>&1
+    fi
+  fi
+  if ! git_local_branch_exists "develop" >/dev/null 2>&1; then
+    if git_remote_branch_exists "develop" >/dev/null 2>&1; then
+      git branch "develop" "origin/develop" >/dev/null 2>&1
+    else
+      git branch --no-track "develop" "master"
+    fi
+  fi
+  git config gitflow.branch.develop "develop"
+  git config gitflow.branch.master "master"
+  git config gitflow.prefix.feature "feature/"
+  git config gitflow.prefix.release "release/"
+  git config gitflow.prefix.hotfix "hotfix/"
+  git config gitflow.prefix.support "support/"
+  git config gitflow.prefix.versiontag ""
+  git config gitflow.feature.finish.fetch true
+  git config gitflow.feature.finish.no-ff true
+  git config gitflow.feature.finish.rebase false
+  git config gitflow.feature.finish.push true
+  git config gitflow.feature.finish.squash false
+  git config gitflow.hotfix.finish.message "Tagged"
+  git config gitflow.hotfix.finish.fetch true
+  git config gitflow.hotfix.finish.push true
+  git config gitflow.hotfix.finish.squash false
+  git config gitflow.release.finish.message "Tagged"
+  git config gitflow.release.finish.fetch true
+  git config gitflow.release.finish.push true
+  git config gitflow.release.finish.squash false
+  git config gitflow.path.hooks "$HOME/.git-hooks"
+  git config gitflow.extension.version "$VERSION"
+}
+
+function run() {
+  local gitflow_path gitflow_dir
+  load_common
   if [[ "$#" -ge "1" ]]; then
     local subcommand="$1"
     if [[ "$subcommand" == "init" ]]; then
@@ -40,137 +197,13 @@ EOF
           ;;
         esac
       done
-      mkdir -p $HOME/.git-hooks
-      cat << EOF > $HOME/.git-hooks/pre-flow-hotfix-finish
-#!/usr/bin/env bash
-
-function run() {
-  local name="\$1"
-  local origin="\$2"
-  local branch="\$3"
-
-  $HOME/.git-hooks/pre-flow-finish "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
-}
-
-run "\$@"
-
-EOF
-      chmod +x $HOME/.git-hooks/pre-flow-hotfix-finish
-      cat << EOF > $HOME/.git-hooks/pre-flow-feature-finish
-#!/usr/bin/env bash
-
-function run() {
-  local name="\$1"
-  local origin="\$2"
-  local branch="\$3"
-
-  $HOME/.git-hooks/pre-flow-finish "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
-}
-
-run "\$@"
-
-EOF
-      chmod +x $HOME/.git-hooks/pre-flow-feature-finish
-      cat << EOF > $HOME/.git-hooks/pre-flow-finish
-#!/usr/bin/env bash
-
-function run() {
-  local type="\$1"
-  local default_base_branch="\$2"
-  local name="\$3"
-  local origin="\$4"
-  local branch="\$5"
-
-  . "$gitflow_dir/gitflow-common"
-
-  local base_branch
-  base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
-  base_branch=\${base_branch:-\$default_base_branch}
-
-  if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
-    local git_commit_author_name
-    git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
-    local git_commit_author_email
-    git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
-    local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
-    local git_squash_commit_format
-    git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
-    if [[ "\$?" != "0" ]]; then
-      git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
-    fi
-    local git_commit_details
-    git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
-    local git_commit_count
-    git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
-    if [[ "\$git_commit_count" -gt "1" ]]; then
-      local git_merge_base
-      git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-      git reset --soft \$git_merge_base || die "failed to reset back to merge base"
-      local git_commit_message_file
-      git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
-      cat <<EOM > \$git_commit_message_file
-Finish \$branch
-
-\${git_commit_details}
-EOM
-      trap "rm -rf \$git_commit_message_file" EXIT
-      git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
-      if [[ "\$?" != "0" ]]; then
-        git reset 'HEAD@{1}' || die "failed to undo reset"
-        die "failed to squash commits"
-      fi
-    fi
-    git rebase \$base_branch || die "failed to rebase onto base branch"
-  fi
-  if git_remote_branch_exists "\$origin/\$branch"; then
-    git push --force || die "failed to push squashed branch"
-  fi
-  exit 0
-}
-
-run "\$@"
-EOF
-      chmod +x $HOME/.git-hooks/pre-flow-finish
-      if ! git rev-parse --git-dir >/dev/null 2>&1; then
-        git init >/dev/null 2>&1
-      fi
-      if ! git_local_branch_exists "master" >/dev/null 2>&1; then
-        if ! git rev-parse --quiet --verify HEAD >/dev/null 2>&1; then
-          git symbolic-ref HEAD "refs/heads/master" >/dev/null 2>&1
-          git commit --allow-empty --quiet -m "Initial commit" >/dev/null 2>&1
-        elif git_remote_branch_exists "master" >/dev/null 2>&1; then
-          git branch "master" "origin/master" >/dev/null 2>&1
-        fi
-      fi
-      if ! git_local_branch_exists "develop" >/dev/null 2>&1; then
-        if git_remote_branch_exists "develop" >/dev/null 2>&1; then
-          git branch "develop" "origin/develop" >/dev/null 2>&1
-        else
-          git branch --no-track "develop" "master"
-        fi
-      fi
-      git config gitflow.branch.develop "develop"
-      git config gitflow.branch.master "master"
-      git config gitflow.prefix.feature "feature/"
-      git config gitflow.prefix.release "release/"
-      git config gitflow.prefix.hotfix "hotfix/"
-      git config gitflow.prefix.support "support/"
-      git config gitflow.prefix.versiontag ""
-      git config gitflow.feature.finish.fetch true
-      git config gitflow.feature.finish.no-ff true
-      git config gitflow.feature.finish.rebase false
-      git config gitflow.feature.finish.push true
-      git config gitflow.feature.finish.squash false
-      git config gitflow.hotfix.finish.message "Tagged"
-      git config gitflow.hotfix.finish.fetch true
-      git config gitflow.hotfix.finish.push true
-      git config gitflow.hotfix.finish.squash false
-      git config gitflow.release.finish.message "Tagged"
-      git config gitflow.release.finish.fetch true
-      git config gitflow.release.finish.push true
-      git config gitflow.release.finish.squash false
-      git config gitflow.path.hooks "$HOME/.git-hooks"
+      initialize
     else
+      # shellcheck disable=SC2155
+      local gitflow_extension_version="$(git config --get gitflow.extension.version || echo '0')"
+      if [[ "$gitflow_extension_version" -lt "$VERSION" ]]; then
+        die "Git repository needs to be initialized.  Run: git flow init"
+      fi
       $gitflow_path "$@"
     fi
   else
