@@ -201,8 +201,10 @@ EOF
     else
       # shellcheck disable=SC2155
       local gitflow_extension_version="$(git config --get gitflow.extension.version || echo '0')"
-      if [[ "$gitflow_extension_version" -lt "$VERSION" ]]; then
-        die "Git repository needs to be initialized.  Run: git flow init"
+      if [[ "$gitflow_extension_version" -eq "0" ]]; then
+        die "GitFlow for git repository is not initialized.  Run: git flow init"
+      elif [[ "$gitflow_extension_version" -lt "$VERSION" ]]; then
+        die "GitFlow for git repository is initialized to version $gitflow_extension_version, but needs to be upgraded to version $VERSION.  Run: git flow init"
       fi
       $gitflow_path "$@"
     fi
