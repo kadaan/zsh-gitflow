@@ -20,6 +20,30 @@ function load_common() {
   . "$gitflow_dir/gitflow-common"
 }
 
+function get_gitflow_extension_current_version() {
+  echo "$(git config --get gitflow.extension.version || echo '0')"
+}
+
+function is_gitflow_extension_initialized() {
+  local gitflow_extension_version
+  gitflow_extension_version=$(get_gitflow_extension_current_version)
+  if [[ "$?" -eq "0" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function is_gitflow_extension_current() {
+  local gitflow_extension_version
+  gitflow_extension_version=$(get_gitflow_extension_current_version)
+  if [[ "$?" -eq "0" && "$gitflow_extension_version" -eq "$VERSION" ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 function write_pre_flow_hotfix_finish_hook() {
   cat << EOF > $HOME/.git-hooks/pre-flow-hotfix-finish
 #!/usr/bin/env bash
@@ -175,7 +199,25 @@ function run() {
   load_common
   if [[ "$#" -ge "1" ]]; then
     local subcommand="$1"
-    if [[ "$subcommand" == "init" ]]; then
+    if [[ "$subcommand" == "version" ]]; then
+      local gitflow_version
+      gitflow_version="$($gitflow_path version)"
+      local gitflow_extension_version
+      gitflow_extension_version="$(git config --get gitflow.extension.version)"
+      if [[ "$?" == "0" ]]; then
+        gitflow_version="$gitflow_version ext $gitflow_extension_version"
+      fi
+      echo "$gitflow_version"
+      local gitflow_init_message="Initialized: "
+      if ! is_gitflow_extension_initialized; then
+        gitflow_init_message="${gitflow_init_message}No"
+      elif ! is_gitflow_extension_current; then
+        gitflow_init_message="${gitflow_init_message}Outdated"
+      else
+        gitflow_init_message="${gitflow_init_message}Yes"
+      fi
+      echo "$gitflow_init_message"
+    elif [[ "$subcommand" == "init" ]]; then
       if [[ "$#" -ge "2" ]]; then
         local arg1="$2"
         if [[ "$arg1" == "help" ]]; then
@@ -201,9 +243,9 @@ EOF
     else
       # shellcheck disable=SC2155
       local gitflow_extension_version="$(git config --get gitflow.extension.version || echo '0')"
-      if [[ "$gitflow_extension_version" -eq "0" ]]; then
+      if ! is_gitflow_extension_initialized; then
         die "GitFlow for git repository is not initialized.  Run: git flow init"
-      elif [[ "$gitflow_extension_version" -lt "$VERSION" ]]; then
+      elif ! is_gitflow_extension_current; then
         die "GitFlow for git repository is initialized to version $gitflow_extension_version, but needs to be upgraded to version $VERSION.  Run: git flow init"
       fi
       $gitflow_path "$@"
