@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 BUILD_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-VERSION=1
+VERSION=2
 
 function load_common() {
   gitflow_path="$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
@@ -62,6 +62,24 @@ EOF
   chmod +x $HOME/.git-hooks/pre-flow-hotfix-finish
 }
 
+function write_post_flow_hotfix_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/post-flow-hotfix-finish
+#!/usr/bin/env bash
+
+function run() {
+local name="\$1"
+local origin="\$2"
+local branch="\$3"
+
+$HOME/.git-hooks/post-flow-finish "hotfix" "\$MASTER_BRANCH" "\$name" "\$origin" "\$branch"
+}
+
+run "\$@"
+
+EOF
+  chmod +x $HOME/.git-hooks/post-flow-hotfix-finish
+}
+
 function write_pre_flow_feature_finish_hook() {
   cat << EOF > $HOME/.git-hooks/pre-flow-feature-finish
 #!/usr/bin/env bash
@@ -80,62 +98,96 @@ EOF
   chmod +x $HOME/.git-hooks/pre-flow-feature-finish
 }
 
+function write_post_flow_feature_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/post-flow-feature-finish
+#!/usr/bin/env bash
+
+function run() {
+local name="\$1"
+local origin="\$2"
+local branch="\$3"
+
+$HOME/.git-hooks/post-flow-finish "feature" "\$DEVELOP_BRANCH" "\$name" "\$origin" "\$branch"
+}
+
+run "\$@"
+
+EOF
+  chmod +x $HOME/.git-hooks/post-flow-feature-finish
+}
+
 function write_pre_flow_finish_hook() {
   cat << EOF > $HOME/.git-hooks/pre-flow-finish
 #!/usr/bin/env bash
 
 function run() {
-local type="\$1"
-local default_base_branch="\$2"
-local name="\$3"
-local origin="\$4"
-local branch="\$5"
+  local type="\$1"
+  local default_base_branch="\$2"
+  local name="\$3"
+  local origin="\$4"
+  local branch="\$5"
 
-. "$gitflow_dir/gitflow-common"
+  . "$gitflow_dir/gitflow-common"
 
-local base_branch
-base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
-base_branch=\${base_branch:-\$default_base_branch}
+  local base_branch
+  base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
+  base_branch=\${base_branch:-\$default_base_branch}
 
-if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
-local git_commit_author_name
-git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
-local git_commit_author_email
-git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
-local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
-local git_squash_commit_format
-git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
-if [[ "\$?" != "0" ]]; then
-  git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
-fi
-local git_commit_details
-git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
-local git_commit_count
-git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
-if [[ "\$git_commit_count" -gt "1" ]]; then
-  local git_merge_base
-  git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-  git reset --soft \$git_merge_base || die "failed to reset back to merge base"
-  local git_commit_message_file
-  git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
-  cat <<EOM > \$git_commit_message_file
+  if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
+  local git_commit_author_name
+  git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
+  local git_commit_author_email
+  git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
+  local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
+  local git_squash_commit_format
+  git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
+  if [[ "\$?" != "0" ]]; then
+    git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
+  fi
+  local git_commit_details
+  git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
+  local git_commit_count
+  git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
+  if [[ "\$git_commit_count" -gt "1" ]]; then
+    git config --local "gitflow.branch.\$branch.squashed" "true" || die "failed to store squashed flag"
+    local git_merge_base
+    git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
+    git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+    local git_commit_message_file
+    git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
+    cat <<EOM > \$git_commit_message_file
 Finish \$branch
 
 \${git_commit_details}
 EOM
-  trap "rm -rf \$git_commit_message_file" EXIT
-  git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
-  if [[ "\$?" != "0" ]]; then
-    git reset 'HEAD@{1}' || die "failed to undo reset"
-    die "failed to squash commits"
+    trap "rm -rf \$git_commit_message_file" EXIT
+    git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+    if [[ "\$?" != "0" ]]; then
+      git reset 'HEAD@{1}' || die "failed to undo reset"
+      die "failed to squash commits"
+    fi
   fi
-fi
-git rebase \$base_branch || die "failed to rebase onto base branch"
-fi
-if git_remote_branch_exists "\$origin/\$branch"; then
-git push --force || die "failed to push squashed branch"
-fi
-exit 0
+
+  git fetch -q "\$origin" "\$base_branch" || die "failed to fetch"
+  git_compare_refs "\$base_branch" "\$origin/\$base_branch"
+  local compare_refs_result=\$?
+  if [ \$compare_refs_result -gt 0 ]; then
+    warn "Branches '\$base_branch' and '\$origin/\$base_branch' have diverged."
+    if [[ "\$git_commit_count" -gt "1" ]]; then
+      git reset 'HEAD@{2}' || die "failed to undo reset and commit"
+    fi
+    warn "And the branches need manual merging."
+    warn "When finished, re-run:"
+    warn "    git flow feature finish '\$name' '\$base_branch'"
+    exit 1
+  fi
+
+  git rebase \$base_branch || die "failed to rebase onto base branch"
+  fi
+  if git_remote_branch_exists "\$origin/\$branch"; then
+    git push --force || die "failed to push squashed branch"
+  fi
+  exit 0
 }
 
 run "\$@"
@@ -143,11 +195,69 @@ EOF
   chmod +x $HOME/.git-hooks/pre-flow-finish
 }
 
+function write_post_flow_finish_hook() {
+  cat << EOF > $HOME/.git-hooks/post-flow-finish
+#!/usr/bin/env bash
+
+function run() {
+  local type="\$1"
+  local default_base_branch="\$2"
+  local name="\$3"
+  local origin="\$4"
+  local branch="\$5"
+
+  . "$gitflow_dir/gitflow-common"
+
+  local squashed=false
+  if git config --local --get "gitflow.branch.\$branch.squashed"; then
+    squashed=true
+    git config --local --unset "gitflow.branch.\$branch.squashed" 2>/dev/null
+  fi
+
+  local base_branch
+  base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
+  base_branch=\${base_branch:-\$default_base_branch}
+
+  git fetch -q "\$origin" "\$base_branch" || die "failed to fetch"
+
+  local local_commit remote_commit
+  local_commit=\$(git rev-parse "\$base_branch"@{1}) || die "failed to find git revision for: \${base_branch}@{1}"
+  remote_commit=\$(git rev-parse "\$origin/\$base_branch"^{}) || die "failed to find git revision for: \$origin/\${base_branch}^{}"
+  if [ "\$local_commit" != "\$remote_commit" ]; then
+    warn "Branches '\$base_branch' and '\$origin/\$base_branch' have diverged."
+    if [[ "\$squashed" == "true" ]]; then
+      git reset --hard 'HEAD@{3}' || die "failed to undo merge"
+    else
+      git reset --hard 'HEAD@{1}' || die "failed to undo merge"
+    fi
+    warn "Branch '\$branch' needs to be updated with the latest changes '\$base_branch'"
+    warn "Perform the following steps:"
+    warn "    git pull '\$origin' '\$base_branch'"
+    warn "    git checkout '\$branch'"
+    warn "    git rebase '\$base_branch'"
+    warn "    # resolve conflicts"
+    warn "    git push --force '\$origin' '\$branch'"
+    warn "When finished, re-run:"
+    warn "    git flow feature finish '\$name' '\$base_branch'"
+    exit 1
+  fi
+
+  exit 0
+}
+
+run "\$@"
+EOF
+  chmod +x $HOME/.git-hooks/post-flow-finish
+}
+
 function write_hooks() {
   mkdir -p $HOME/.git-hooks
   write_pre_flow_finish_hook
+  write_post_flow_finish_hook
   write_pre_flow_hotfix_finish_hook
+  write_post_flow_hotfix_finish_hook
   write_pre_flow_feature_finish_hook
+  write_post_flow_feature_finish_hook
 }
 
 function initialize() {
@@ -192,6 +302,22 @@ function initialize() {
   git config gitflow.release.finish.squash false
   git config gitflow.path.hooks "$HOME/.git-hooks"
   git config gitflow.extension.version "$VERSION"
+}
+
+run_post_hook() {
+  set -x
+  local scriptfile
+
+  scriptfile="${HOOKS_DIR}/post-flow-${SUBCOMMAND}-${SUBACTION}"
+  exitcode=0
+  if [ -x "$scriptfile" ]; then
+    "$scriptfile" "$@"
+    exitcode=$?
+
+    if [ $exitcode -gt 0 ]; then
+      die "Hook command $scriptfile ended with exit code $exitcode."
+    fi
+  fi
 }
 
 function run() {
