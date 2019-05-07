@@ -120,6 +120,26 @@ function write_pre_flow_finish_hook() {
   cat << EOF > $HOME/.git-hooks/pre-flow-finish
 #!/usr/bin/env bash
 
+function load_common() {
+  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
+  while [ -h "\$gitflow_path" ]; do
+    # shellcheck disable=SC2155
+    local link=\$(readlink "\$gitflow_path")
+    if expr "\$link" : '/.*' > /dev/null; then
+      gitflow_path="\$link"
+    else
+      gitflow_path="\$(dirname "\$gitflow_path")/\$link"
+    fi
+  done
+  # shellcheck disable=SC2155
+  gitflow_common_file=\$(dirname "\$gitflow_path")/../libexec/bin/gitflow-common
+  . "\$gitflow_common_file"
+  if [[ "\$?" -ne 0 ]]; then
+    echo -e "Failed to source '\$gitflow_common_file': \$?" 1>&2
+    exit 1
+  fi
+}
+
 function run() {
   local type="\$1"
   local default_base_branch="\$2"
@@ -127,7 +147,7 @@ function run() {
   local origin="\$4"
   local branch="\$5"
 
-  . "$gitflow_dir/gitflow-common"
+  load_common
 
   local base_branch
   base_branch="\$(gitflow_config_get_base_branch \$branch)" || die "failed to get base branch"
@@ -199,6 +219,26 @@ function write_post_flow_finish_hook() {
   cat << EOF > $HOME/.git-hooks/post-flow-finish
 #!/usr/bin/env bash
 
+function load_common() {
+  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
+  while [ -h "\$gitflow_path" ]; do
+    # shellcheck disable=SC2155
+    local link=\$(readlink "\$gitflow_path")
+    if expr "\$link" : '/.*' > /dev/null; then
+      gitflow_path="\$link"
+    else
+      gitflow_path="\$(dirname "\$gitflow_path")/\$link"
+    fi
+  done
+  # shellcheck disable=SC2155
+  gitflow_common_file=\$(dirname "\$gitflow_path")/../libexec/bin/gitflow-common
+  . "\$gitflow_common_file"
+  if [[ "\$?" -ne 0 ]]; then
+    echo -e "Failed to source '\$gitflow_common_file': \$?" 1>&2
+    exit 1
+  fi
+}
+
 function run() {
   local type="\$1"
   local default_base_branch="\$2"
@@ -206,7 +246,7 @@ function run() {
   local origin="\$4"
   local branch="\$5"
 
-  . "$gitflow_dir/gitflow-common"
+  load_common
 
   local squashed=false
   if git config --local --get "gitflow.branch.\$branch.squashed"; then
