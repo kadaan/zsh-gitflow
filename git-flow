@@ -49,7 +49,7 @@ function write_pre_flow_hotfix_start_hook() {
 #!/usr/bin/env bash
 
 function load_common() {
-  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
+  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | grep -v "^/Applications/" | head -n1)"
   while [ -h "\$gitflow_path" ]; do
     # shellcheck disable=SC2155
     local link=\$(readlink "\$gitflow_path")
@@ -165,7 +165,7 @@ function write_pre_flow_finish_hook() {
 #!/usr/bin/env bash
 
 function load_common() {
-  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
+  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | grep -v "^/Applications/" | head -n1)"
   while [ -h "\$gitflow_path" ]; do
     # shellcheck disable=SC2155
     local link=\$(readlink "\$gitflow_path")
@@ -264,7 +264,7 @@ function write_post_flow_finish_hook() {
 #!/usr/bin/env bash
 
 function load_common() {
-  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
+  gitflow_path="\$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | grep -v "^/Applications/" | head -n1)"
   while [ -h "\$gitflow_path" ]; do
     # shellcheck disable=SC2155
     local link=\$(readlink "\$gitflow_path")
