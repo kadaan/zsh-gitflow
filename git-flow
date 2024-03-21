@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 BUILD_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-VERSION=3
+VERSION=4
 
 function load_common() {
   gitflow_path="$(which -a git-flow | grep -v "^$BUILD_DIR/git-flow\$" | head -n1)"
@@ -20,8 +20,21 @@ function load_common() {
   . "$gitflow_dir/gitflow-common"
 }
 
+function get_gitflow_extension_checksum() {
+  local git_flow_path="$BUILD_DIR/git-flow"
+  shasum -a 256 "$git_flow_path" | cut -d' ' -f1
+}
+
+function get_gitflow_extension_current_checksum() {
+  echo "$(git config --get gitflow.extension.checksum || echo '')"
+}
+
 function get_gitflow_extension_current_version() {
   echo "$(git config --get gitflow.extension.version || echo '0')"
+}
+
+function get_gitflow_hooks_path() {
+  echo "$(git config --get gitflow.path.hooks || echo '')"
 }
 
 function is_gitflow_extension_initialized() {
@@ -38,9 +51,27 @@ function is_gitflow_extension_current() {
   local gitflow_extension_version
   gitflow_extension_version=$(get_gitflow_extension_current_version)
   if [[ "$gitflow_extension_version" -eq "$VERSION" ]]; then
-    return 0
+    local gitflow_extension_checksum
+    gitflow_extension_checksum="$(get_gitflow_extension_checksum)"
+    local gitflow_extension_current_checksum
+    gitflow_extension_current_checksum="$(get_gitflow_extension_current_checksum)"
+    if [[ "$gitflow_extension_checksum" == "$gitflow_extension_current_checksum" ]]; then
+      return 0
+    else
+      return 1
+    fi
   else
     return 1
+  fi
+}
+
+function is_gitflow_hook_path_valid() {
+  local gitflow_hooks_path
+  gitflow_hooks_path="$(get_gitflow_hooks_path)"
+  if [[ ! -d "$gitflow_hooks_path" ]]; then
+    return 1
+  else
+    return 0
   fi
 }
 
@@ -198,55 +229,72 @@ function run() {
   base_branch=\${base_branch:-\$default_base_branch}
 
   if ! git_is_branch_merged_into "\$branch" "\$base_branch"; then
-  local git_commit_author_name
-  git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
-  local git_commit_author_email
-  git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
-  local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
-  local git_squash_commit_format
-  git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
-  if [[ "\$?" != "0" ]]; then
-    git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
-  fi
-  local git_commit_details
-  git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
-  local git_commit_count
-  git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
-  if [[ "\$git_commit_count" -gt "1" ]]; then
-    git config --local "gitflow.branch.\$branch.squashed" "true" || die "failed to store squashed flag"
-    local git_merge_base
-    git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
-    git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+    local git_commit_author_name
+    git_commit_author_name="\$(git config --get user.name)" || die "failed to find git config: user.name"
+    local git_commit_author_email
+    git_commit_author_email="\$(git config --get user.email)" || die "failed to find git config: user.email"
+    local git_commit_author="\$git_commit_author_name <\$git_commit_author_email>"
+    local git_squash_commit_format
+    git_squash_commit_format="\$(git config --get gitflow.\$type.finish.squash.format)"
+    if [[ "\$?" != "0" ]]; then
+      git_squash_commit_format="%h%x09%ad%x09<%aE>%x09%s"
+    fi
+    local git_commit_details
+    git_commit_details="\$(git log "\$base_branch..\$branch" --date="format:%Y-%m-%d %H:%M" --pretty="format:\$git_squash_commit_format" | sed 's/^/* /')" || die "failed to get commit details"
+    local git_commit_count
+    git_commit_count="\$(echo "\$git_commit_details" | grep -c '^')" || die "failed to determine commit count"
     local git_commit_message_file
     git_commit_message_file="\$(mktemp)" || die "failed to create temp file for git commit message"
-    cat <<EOM > \$git_commit_message_file
+    trap "rm -rf \$git_commit_message_file" EXIT
+    local git_skip_build_trailer
+    local git_finish_skip_build
+    git_finish_skip_build="\$(git config --get gitflow.\$type.finish.skipbuild || echo 'false')"
+    if [[ "\$git_finish_skip_build" == "true" ]]; then
+      local nl=$'\n'
+      git_skip_build_trailer="\${nl}\${nl}Skip-build: true"
+    fi
+    if [[ "\$git_commit_count" -gt "1" ]]; then
+      git config --local "gitflow.branch.\$branch.squashed" "true" || die "failed to store squashed flag"
+      local git_merge_base
+      git_merge_base="\$(git merge-base HEAD \$base_branch)" || die "failed to find merge base"
+      git reset --soft \$git_merge_base || die "failed to reset back to merge base"
+      cat <<EOM > \$git_commit_message_file
 Finish \$branch
 
-\${git_commit_details}
+\${git_commit_details}\${git_skip_build_trailer}
 EOM
-    trap "rm -rf \$git_commit_message_file" EXIT
-    git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
-    if [[ "\$?" != "0" ]]; then
-      git reset 'HEAD@{1}' || die "failed to undo reset"
-      die "failed to squash commits"
+      git commit --author="\$git_commit_author" --edit --file \$git_commit_message_file
+      if [[ "\$?" != "0" ]]; then
+        git reset 'HEAD@{1}' || die "failed to undo reset"
+        die "failed to squash commits"
+      fi
+    elif [[ "\$git_skip_build_trailer" != "" ]]; then
+      git_commit_details="\$(git log --format=%B -n 1)" || die "failed to get commit message"
+      cat <<EOM > \$git_commit_message_file
+\${git_commit_details}\${git_skip_build_trailer}
+EOM
+      git commit --amend --author="\$git_commit_author" --file \$git_commit_message_file
+      if [[ "\$?" != "0" ]]; then
+        git reset 'HEAD@{1}' || die "failed to undo reset"
+        die "failed to amend commit"
+      fi
     fi
-  fi
 
-  git fetch -q "\$origin" "\$base_branch" || die "failed to fetch"
-  git_compare_refs "\$base_branch" "\$origin/\$base_branch"
-  local compare_refs_result=\$?
-  if [ \$compare_refs_result -gt 0 ]; then
-    warn "Branches '\$base_branch' and '\$origin/\$base_branch' have diverged."
-    if [[ "\$git_commit_count" -gt "1" ]]; then
-      git reset 'HEAD@{2}' || die "failed to undo reset and commit"
+    git fetch -q "\$origin" "\$base_branch" || die "failed to fetch"
+    git_compare_refs "\$base_branch" "\$origin/\$base_branch"
+    local compare_refs_result=\$?
+    if [ \$compare_refs_result -gt 0 ]; then
+      warn "Branches '\$base_branch' and '\$origin/\$base_branch' have diverged."
+      if [[ "\$git_commit_count" -gt "1" ]]; then
+        git reset 'HEAD@{2}' || die "failed to undo reset and commit"
+      fi
+      warn "And the branches need manual merging."
+      warn "When finished, re-run:"
+      warn "    git flow feature finish '\$name' '\$base_branch'"
+      exit 1
     fi
-    warn "And the branches need manual merging."
-    warn "When finished, re-run:"
-    warn "    git flow feature finish '\$name' '\$base_branch'"
-    exit 1
-  fi
 
-  git rebase \$base_branch || die "failed to rebase onto base branch"
+    git rebase --autosquash \$base_branch || die "failed to rebase onto base branch"
   fi
   if git_remote_branch_exists "\$origin/\$branch"; then
     git push --force || die "failed to push squashed branch"
@@ -365,6 +413,8 @@ function initialize() {
       git branch --no-track "develop" "master"
     fi
   fi
+  local gitflow_extension_checksum
+  gitflow_extension_checksum="$(get_gitflow_extension_checksum)"
   git config gitflow.branch.develop "develop"
   git config gitflow.branch.master "master"
   git config gitflow.prefix.feature "feature/"
@@ -377,16 +427,19 @@ function initialize() {
   git config gitflow.feature.finish.rebase false
   git config gitflow.feature.finish.push true
   git config gitflow.feature.finish.squash false
+  git config gitflow.feature.finish.skipbuild true
   git config gitflow.hotfix.finish.message "Tagged"
   git config gitflow.hotfix.finish.fetch true
   git config gitflow.hotfix.finish.push true
   git config gitflow.hotfix.finish.squash false
+  git config gitflow.hotfix.finish.skipbuild true
   git config gitflow.release.finish.message "Tagged"
   git config gitflow.release.finish.fetch true
   git config gitflow.release.finish.push true
   git config gitflow.release.finish.squash false
   git config gitflow.path.hooks "$HOME/.git-hooks"
   git config gitflow.extension.version "$VERSION"
+  git config gitflow.extension.checksum "$gitflow_extension_checksum"
 }
 
 run_post_hook() {
@@ -452,12 +505,20 @@ EOF
       done
       initialize
     else
-      # shellcheck disable=SC2155
-      local gitflow_extension_version="$(git config --get gitflow.extension.version || echo '0')"
       if ! is_gitflow_extension_initialized; then
-        die "GitFlow for git repository is not initialized.  Run: git flow init"
+        die "GitFlow for git repository is not initialized.  Run: git flow init" 
       elif ! is_gitflow_extension_current; then
-        die "GitFlow for git repository is initialized to version $gitflow_extension_version, but needs to be upgraded to version $VERSION.  Run: git flow init"
+        local gitflow_extension_current_version
+        gitflow_extension_current_version="$(get_gitflow_extension_current_version)"
+        local gitflow_extension_current_checksum
+        gitflow_extension_current_checksum="$(get_gitflow_extension_current_checksum)"
+        local gitflow_extension_checksum
+        gitflow_extension_checksum="$(get_gitflow_extension_checksum)"
+        warn "GitFlow for git repository is initialized to version $gitflow_extension_current_version($gitflow_extension_current_checksum), but needs to be upgraded to version $VERSION($gitflow_extension_checksum).  Re-initializing..."
+        git flow init
+      elif ! is_gitflow_hook_path_valid; then
+        warn "GitFlow for git repository is initialized, but the 'gitflow.path.hooks' config points to an invalid path.  Re-initializing..."
+        git flow init
       fi
       $gitflow_path "$@"
     fi
